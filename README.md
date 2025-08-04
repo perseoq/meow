@@ -52,7 +52,7 @@ This Python Flask web server automatically indexes HTML pages and provides a sea
 
 2. Create directory structure:
    ```bash
-   mkdir -p web backup templates
+   mkdir -p web backup
    ```
 
 3. Add your HTML files in `web/` (e.g., `web/my-site/index.html`)
