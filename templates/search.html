@@ -8,20 +8,23 @@
 </head>
 <body>
     <div class="container mt-5">
-        <h1 class="mb-4">Resultados de Búsqueda</h1>
-        
-        <form action="/search" method="get" class="mb-4">
-            <div class="input-group">
-                <input type="text" class="form-control" name="q" placeholder="Buscar..." value="{{ query }}">
-                <button type="submit" class="btn btn-primary">Buscar</button>
-            </div>
-        </form>
+        <div class="d-flex align-item-center justify-content-center">
+                <img src="{{ url_for('static', filename='img/logo.png') }}" style="height: 40px;" alt="">  
+                <form action="/search" method="get" class="mb-4 flex-grow-1">
+                    <div class="input-group">
+                        <input style="width: 0%;" type="text" class="form-control" name="q" placeholder="Buscar..." value="{{ query }}">
+                        <button type="submit" class="btn btn-primary">Buscar</button>
+                    </div>
+                </form>
+        </div>
+
+        <h1 class="mb-4 fs-4 fw-bolder text-center text-dark">Resultados de Búsqueda</h1>
         
         {% if query %}
         <p class="text-muted">Búsqueda: <strong>{{ query }}</strong></p>
         {% endif %}
         
-        <p class="text-muted">Mostrando {{ results|length }} de {{ total_records }} resultados</p>
+        <p class="text-muted text-center">Mostrando {{ results|length }} de {{ total_records }} resultados</p>
         
         <div class="list-group mb-4">
             {% for result in results %}
@@ -31,7 +34,10 @@
                 <small>{{ result[0] }}</small>
             </a>
             {% else %}
-            <div class="alert alert-warning">No se encontraron resultados.</div>
+            <!-- <div class="alert alert-warning">No se encontraron resultados.</div> -->
+             <div class="d-flex justify-content-center">
+                <img src="{{ url_for('static', filename='img/404.png') }}" style="width: 300px;" alt="">
+             </div>
             {% endfor %}
         </div>
         
