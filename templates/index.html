@@ -8,9 +8,12 @@
 </head>
 <body>
     <div class="container mt-5">
-        <h1 class="mb-4">Buscador de Páginas</h1>
         
-        <form action="/search" method="get" class="mb-4">
+        <div class="d-flex justify-content-center" style="height: 40%;">
+            <img src="{{ url_for('static', filename='img/logo.png') }}" class="mt-5" style="height: 80px;">
+        </div>
+        
+        <form action="/search" method="get" class="mb-4 mt-5">
             <div class="input-group">
                 <input type="text" class="form-control" name="q" placeholder="Buscar..." value="{{ query }}">
                 <button type="submit" class="btn btn-primary">Buscar</button>

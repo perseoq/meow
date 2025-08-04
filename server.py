@@ -140,7 +140,7 @@ def crawl_pages():
     conn.close()
     print(f"Indexación completada. {updated_count}/{total_count} páginas actualizadas.\n")
 
-def run_periodic_crawler(interval=60):
+def run_periodic_crawler(interval=300):
     while True:
         next_run = time.time() + interval
         crawl_pages()
