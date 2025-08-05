@@ -237,4 +237,4 @@ def serve_content(requested_path):
 
 if __name__ == '__main__':
     crawl_pages()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5600, debug=True)
