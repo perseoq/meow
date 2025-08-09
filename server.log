@@ -1,0 +1,3 @@
+Error sirviendo archivo: 404 Not Found: Archivo no encontrado
+Error en búsqueda: 'Query' object has no attribute 'paginate'
+Error en ruta /search: 500 Internal Server Error: Error interno al procesar la búsqueda
