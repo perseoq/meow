@@ -140,7 +140,7 @@ def crawl_pages():
     conn.close()
     print(f"Indexación completada. {updated_count}/{total_count} páginas actualizadas.\n")
 
-def run_periodic_crawler(interval=300):
+def run_periodic_crawler(interval=60):
     while True:
         next_run = time.time() + interval
         crawl_pages()
@@ -237,4 +237,4 @@ def serve_content(requested_path):
 
 if __name__ == '__main__':
     crawl_pages()
-    app.run(host='0.0.0.0', port=5600, debug=True)
+    app.run(host='0.0.0.0', port=2025, debug=True)
