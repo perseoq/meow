@@ -1,10 +1,11 @@
 import os
-import sqlite3
 import time
 import threading
 from datetime import datetime
 from bs4 import BeautifulSoup
 from flask import Flask, render_template, request, send_from_directory, abort
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import or_, and_
 
 # Configuración inicial
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -15,31 +16,53 @@ TEMPLATES_DIR = os.path.join(BASE_DIR, 'templates')
 
 # Inicializar Flask
 app = Flask(__name__, template_folder=TEMPLATES_DIR)
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_FILE}'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Inicializar SQLAlchemy
+db = SQLAlchemy(app)
 
 # Crear directorios necesarios
 os.makedirs(WEB_DIR, exist_ok=True)
 os.makedirs(BACKUP_DIR, exist_ok=True)
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
-# Inicialización de la base de datos
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            path TEXT UNIQUE,
-            title TEXT,
-            description TEXT,
-            keywords TEXT,
-            last_updated TIMESTAMP,
-            file_hash TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+# Modelo de datos
+class Page(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    path = db.Column(db.String(500), unique=True)
+    title = db.Column(db.String(200))
+    description = db.Column(db.String(500))
+    keywords = db.Column(db.String(200))
+    last_updated = db.Column(db.DateTime)
+    file_hash = db.Column(db.String(100))
 
-init_db()
+    def __repr__(self):
+        return f'<Page {self.path}>'
+
+# Filtros personalizados para las plantillas
+@app.template_filter('format_url')
+def format_url_filter(path):
+    """Formatea la URL para mostrarla como Google"""
+    base_url = request.host_url.rstrip('/')
+    parts = path.split('/')
+    if len(parts) > 1:
+        formatted = ' › '.join(parts[:-1])  # Excluye el nombre del archivo
+        return f"{base_url}/{formatted.lower()}"
+    return f"{base_url}/{path.lower()}"
+
+@app.template_filter('truncate')
+def truncate_filter(text, length=160):
+    """Trunca el texto a una longitud específica"""
+    if not text:
+        return ""
+    if len(text) > length:
+        return text[:length-3] + '...'
+    return text
+
+# Crear tablas si no existen
+with app.app_context():
+    db.create_all()
 
 def calculate_file_hash(file_path):
     """Calcula un hash simple del archivo para detectar cambios"""
@@ -62,12 +85,18 @@ def extract_metadata(file_path):
             meta_keywords = soup.find('meta', attrs={'name': 'keywords'})
             keywords = meta_keywords['content'] if meta_keywords else ''
             
+            # Extraer todos los encabezados (h1-h6) si no hay título
+            if not title:
+                headers = []
+                for h in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+                    headers.append(h.get_text().strip())
+                if headers:
+                    title = ' | '.join(headers)
+            
+            # Extraer primer párrafo si no hay descripción
             if not description:
-                h1 = soup.find('h1')
                 first_p = soup.find('p')
-                
-                title = h1.get_text() if h1 else title
-                description = first_p.get_text() if first_p else description
+                description = first_p.get_text() if first_p else ''
                 
                 if len(description) > 120:
                     description = description[:117] + '...'
@@ -85,42 +114,46 @@ def extract_metadata(file_path):
             'keywords': ''
         }
 
-def update_or_insert_page(cursor, path, metadata, file_hash):
+def update_or_insert_page(path, metadata, file_hash):
     """Actualiza la página solo si ha cambiado o no existe"""
-    cursor.execute('SELECT file_hash FROM pages WHERE path = ?', (path,))
-    result = cursor.fetchone()
-    
-    if result:
-        existing_hash = result[0]
-        if existing_hash == file_hash:
+    with app.app_context():
+        page = Page.query.filter_by(path=path).first()
+        
+        if page and page.file_hash == file_hash:
             print(f"Sin cambios: {path}")
             return False
-    
-    cursor.execute('''
-        INSERT OR REPLACE INTO pages 
-        (path, title, description, keywords, last_updated, file_hash)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (
-        path, 
-        metadata['title'], 
-        metadata['description'],
-        metadata['keywords'], 
-        datetime.now(),
-        file_hash
-    ))
-    return True
+        
+        if page:
+            # Actualizar página existente
+            page.title = metadata['title']
+            page.description = metadata['description']
+            page.keywords = metadata['keywords']
+            page.last_updated = datetime.now()
+            page.file_hash = file_hash
+        else:
+            # Crear nueva página
+            page = Page(
+                path=path,
+                title=metadata['title'],
+                description=metadata['description'],
+                keywords=metadata['keywords'],
+                last_updated=datetime.now(),
+                file_hash=file_hash
+            )
+            db.session.add(page)
+        
+        db.session.commit()
+        return True
 
 def crawl_pages():
     print("\nIniciando indexación inteligente...")
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
     
     updated_count = 0
     total_count = 0
     
     for root, _, files in os.walk(WEB_DIR):
         for file in files:
-            if file.lower() == 'index.html':
+            if file.lower().endswith('.html'):
                 file_path = os.path.join(root, file)
                 web_path = os.path.relpath(file_path, WEB_DIR)
                 total_count += 1
@@ -129,21 +162,23 @@ def crawl_pages():
                     metadata = extract_metadata(file_path)
                     file_hash = calculate_file_hash(file_path)
                     
-                    if update_or_insert_page(cursor, web_path, metadata, file_hash):
+                    if update_or_insert_page(web_path, metadata, file_hash):
                         updated_count += 1
                         print(f"Actualizado: {web_path}")
                     
                 except Exception as e:
                     print(f"Error indexando {file_path}: {str(e)}")
     
-    conn.commit()
-    conn.close()
     print(f"Indexación completada. {updated_count}/{total_count} páginas actualizadas.\n")
 
 def run_periodic_crawler(interval=60):
+    # Esperar a que la aplicación Flask esté lista
+    time.sleep(5)
+    
     while True:
         next_run = time.time() + interval
-        crawl_pages()
+        with app.app_context():
+            crawl_pages()
         
         while time.time() < next_run:
             remaining = int(next_run - time.time())
@@ -151,8 +186,9 @@ def run_periodic_crawler(interval=60):
             time.sleep(1)
 
 # Iniciar el indexador en segundo plano
-crawler_thread = threading.Thread(target=run_periodic_crawler, daemon=True)
-crawler_thread.start()
+def start_crawler():
+    crawler_thread = threading.Thread(target=run_periodic_crawler, daemon=True)
+    crawler_thread.start()
 
 @app.route('/')
 def home():
@@ -168,38 +204,42 @@ def search():
     except ValueError:
         page = 1
     
-    per_page = 30
+    per_page = 10  # Reducido a 10 resultados por página para estilo Google
     offset = (page - 1) * per_page
     
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
     if query:
-        search_term = f"%{query}%"
-        cursor.execute('''
-            SELECT COUNT(*) FROM pages
-            WHERE title LIKE ? OR description LIKE ? OR keywords LIKE ?
-        ''', (search_term, search_term, search_term))
-        total_records = cursor.fetchone()[0]
+        # Dividir la consulta en términos individuales
+        terms = query.split()
         
-        cursor.execute('''
-            SELECT path, title, description FROM pages
-            WHERE title LIKE ? OR description LIKE ? OR keywords LIKE ?
-            ORDER BY title
-            LIMIT ? OFFSET ?
-        ''', (search_term, search_term, search_term, per_page, offset))
+        # Crear condiciones de búsqueda para cada término
+        conditions = []
+        for term in terms:
+            term_cond = or_(
+                Page.title.ilike(f'%{term}%'),
+                Page.description.ilike(f'%{term}%'),
+                Page.keywords.ilike(f'%{term}%')
+            )
+            conditions.append(term_cond)
+        
+        # Combinar condiciones con AND (todos los términos deben coincidir)
+        query_filter = and_(*conditions)
+        
+        # Contar resultados totales
+        total_records = Page.query.filter(query_filter).count()
+        
+        # Obtener resultados paginados
+        results = Page.query.filter(query_filter)\
+                            .order_by(Page.title)\
+                            .limit(per_page)\
+                            .offset(offset)\
+                            .all()
     else:
-        cursor.execute('SELECT COUNT(*) FROM pages')
-        total_records = cursor.fetchone()[0]
-        
-        cursor.execute('''
-            SELECT path, title, description FROM pages
-            ORDER BY title
-            LIMIT ? OFFSET ?
-        ''', (per_page, offset))
-    
-    results = cursor.fetchall()
-    conn.close()
+        # Si no hay consulta, mostrar todo
+        total_records = Page.query.count()
+        results = Page.query.order_by(Page.title)\
+                           .limit(per_page)\
+                           .offset(offset)\
+                           .all()
     
     total_records = int(total_records)
     total_pages = (total_records + per_page - 1) // per_page
@@ -236,5 +276,8 @@ def serve_content(requested_path):
     abort(404)
 
 if __name__ == '__main__':
-    crawl_pages()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Iniciar el crawler después de que Flask esté listo
+    start_crawler()
+    
+    # Ejecutar la aplicación Flask
+    app.run(host='0.0.0.0', port=6100, debug=True)
