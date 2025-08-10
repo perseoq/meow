@@ -2,6 +2,10 @@
 
 This Python Flask web server automatically indexes HTML pages and provides a search functionality with the following features:
 
+![1](preview/1.png)
+![2](preview/2.png)
+
+
 ### How It Works
 
 1. **Automatic Indexing**
